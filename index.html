@@ -1,6 +1,640 @@
 <!DOCTYPE html>
 <html lang="sv">
 <head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blomklassificerare</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --cream:     #f5f0e8;
+      --parchment: #ede6d6;
+      --moss:      #3d4a2e;
+      --sage:      #7a8c6e;
+      --blush:     #c9847a;
+      --rust:      #a0522d;
+      --ink:       #1c1a18;
+      --gold:      #b8966e;
+      --warn:      #c49a3c;
+      --danger:    #b05a50;
+    }
+
+    html, body {
+      background-color: var(--cream);
+      color: var(--ink);
+      font-family: 'Cormorant Garamond', serif;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 2rem 1rem 5rem;
+      background-image:
+        radial-gradient(ellipse at 10% 20%, rgba(122,140,110,0.09) 0%, transparent 60%),
+        radial-gradient(ellipse at 90% 80%, rgba(201,132,122,0.08) 0%, transparent 50%);
+    }
+
+    /* ── Header ── */
+    header {
+      text-align: center;
+      margin-bottom: 2.4rem;
+    }
+
+    .byline {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.22em;
+      color: var(--sage);
+      text-transform: uppercase;
+      margin-bottom: 0.6rem;
+    }
+
+    h1 {
+      font-size: clamp(2.8rem, 6vw, 4.5rem);
+      font-weight: 300;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      color: var(--moss);
+    }
+
+    h1 em {
+      font-style: italic;
+      color: var(--blush);
+    }
+
+    .subtitle {
+      margin-top: 0.5rem;
+      font-size: 1rem;
+      font-weight: 300;
+      color: var(--sage);
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Status box ── */
+    #status-box {
+      width: 100%;
+      max-width: 560px;
+      border: 1px solid var(--gold);
+      background: var(--parchment);
+      border-radius: 3px;
+      padding: 0.9rem 1.3rem;
+      margin-bottom: 1.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+      transition: border-color 0.4s;
+    }
+
+    #status-box.state-ready   { border-color: var(--sage); }
+    #status-box.state-error   { border-color: var(--danger); }
+    #status-box.state-loading { border-color: var(--gold); }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #ccc;
+      transition: background 0.5s;
+    }
+    .status-dot.loading { background: var(--gold);   animation: pulse 1.2s infinite; }
+    .status-dot.ready   { background: var(--sage);   animation: none; }
+    .status-dot.error   { background: var(--danger); animation: none; }
+
+    #status-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--moss);
+    }
+
+    #status-detail {
+      font-size: 0.88rem;
+      color: var(--sage);
+      font-weight: 300;
+      margin-top: 0.1rem;
+    }
+
+    /* ── Upload / drop area ── */
+    #drop-area {
+      width: 100%;
+      max-width: 560px;
+      min-height: 260px;
+      border: 1.5px dashed var(--gold);
+      border-radius: 4px;
+      background: rgba(245,240,232,0.55);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.25s, border-color 0.25s;
+      overflow: hidden;
+    }
+
+    #drop-area:hover,
+    #drop-area.dragover {
+      background: rgba(184,150,110,0.07);
+      border-color: var(--rust);
+    }
+
+    #drop-area input[type=file] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    #drop-area input[type=file]:disabled { cursor: not-allowed; }
+
+    #upload-prompt {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .upload-icon {
+      font-size: 2.8rem;
+      margin-bottom: 0.8rem;
+      opacity: 0.45;
+    }
+
+    .upload-hint {
+      font-size: 1rem;
+      font-weight: 300;
+      color: var(--sage);
+      letter-spacing: 0.05em;
+    }
+
+    .upload-sub {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.14em;
+      color: var(--gold);
+      text-transform: uppercase;
+      margin-top: 0.35rem;
+    }
+
+    #preview-img {
+      display: none;
+      max-width: 100%;
+      max-height: 400px;
+      object-fit: contain;
+      border-radius: 2px;
+      pointer-events: none;
+    }
+
+    /* ── Result card ── */
+    #result-card {
+      width: 100%;
+      max-width: 560px;
+      margin-top: 1.6rem;
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity 0.55s ease, transform 0.55s ease;
+      pointer-events: none;
+    }
+
+    #result-card.visible {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    /* result-inner always keeps its base class; cert-* is added alongside */
+    .result-inner {
+      background: var(--parchment);
+      border: 1px solid var(--gold);
+      border-radius: 3px;
+      padding: 1.5rem 1.8rem 1.6rem;
+      transition: border-color 0.5s;
+    }
+
+    .result-inner.cert-uncertain      { border-color: var(--warn); }
+    .result-inner.cert-very-uncertain { border-color: var(--danger); }
+    .result-inner.cert-sure           { border-color: var(--sage); }
+
+    .result-top-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--sage);
+      margin-bottom: 0.5rem;
+    }
+
+    #flower-name {
+      font-size: clamp(2.2rem, 5vw, 3rem);
+      font-weight: 300;
+      font-style: italic;
+      color: var(--moss);
+      line-height: 1.1;
+    }
+
+    #confidence-line {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--rust);
+      letter-spacing: 0.08em;
+      margin-top: 0.35rem;
+    }
+
+    /* ── Certainty badge ── */
+    #certainty-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-top: 0.9rem;
+      padding: 0.38rem 0.9rem;
+      border-radius: 2px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      border: 1px solid transparent;
+      opacity: 0;
+      transition: opacity 0.4s, background 0.4s, color 0.4s, border-color 0.4s;
+    }
+
+    #certainty-badge.visible { opacity: 1; }
+
+    #certainty-badge.cert-sure {
+      background: rgba(122,140,110,0.13);
+      color: var(--moss);
+      border-color: rgba(122,140,110,0.32);
+    }
+
+    #certainty-badge.cert-uncertain {
+      background: rgba(196,154,60,0.13);
+      color: #7a5c18;
+      border-color: rgba(196,154,60,0.38);
+    }
+
+    #certainty-badge.cert-very-uncertain {
+      background: rgba(176,90,80,0.11);
+      color: var(--danger);
+      border-color: rgba(176,90,80,0.32);
+    }
+
+    .badge-icon { font-size: 0.9rem; }
+
+    /* ── Main confidence bar ── */
+    .bar-track {
+      margin-top: 1.3rem;
+      height: 3px;
+      background: rgba(0,0,0,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      width: 0%;
+      transition: width 0.9s cubic-bezier(0.16,1,0.3,1), background 0.5s;
+      border-radius: 2px;
+    }
+
+    .bar-fill.cert-sure           { background: linear-gradient(90deg, var(--sage), #a8c49a); }
+    .bar-fill.cert-uncertain      { background: linear-gradient(90deg, var(--warn), #e0b84a); }
+    .bar-fill.cert-very-uncertain { background: linear-gradient(90deg, var(--danger), #d07868); }
+
+    /* ── All predictions list ── */
+    #all-predictions {
+      margin-top: 1.5rem;
+    }
+
+    .pred-section-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.58rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 0.7rem;
+    }
+
+    .pred-row {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      padding: 0.32rem 0;
+      border-bottom: 1px solid rgba(184,150,110,0.16);
+    }
+
+    .pred-row:last-child { border-bottom: none; }
+
+    .pred-name {
+      font-size: 0.9rem;
+      font-weight: 300;
+      min-width: 115px;
+      color: var(--ink);
+      letter-spacing: 0.02em;
+    }
+
+    .pred-name.is-top {
+      font-weight: 400;
+      color: var(--moss);
+    }
+
+    .pred-track {
+      flex: 1;
+      height: 2px;
+      background: rgba(0,0,0,0.06);
+      border-radius: 1px;
+      overflow: hidden;
+    }
+
+    .pred-bar {
+      height: 100%;
+      background: var(--sage);
+      width: 0%;
+      transition: width 0.8s cubic-bezier(0.16,1,0.3,1);
+      border-radius: 1px;
+    }
+
+    .pred-bar.is-top { background: var(--blush); }
+
+    .pred-pct {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--gold);
+      min-width: 50px;
+      text-align: right;
+    }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 3.5rem;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(61,74,46,0.35);
+      text-align: center;
+    }
+
+    /* ── Keyframes ── */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    @media (max-width: 600px) {
+      .pred-name { min-width: 90px; font-size: 0.82rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <p class="byline">Lu.Y Na23C &nbsp;·&nbsp; Blomklassificerare</p>
+  <h1>Blom<em>igenkänning</em></h1>
+  <p class="subtitle">Ladda upp en bild — modellen identifierar blomarten</p>
+</header>
+
+<!-- ── Model status box ── -->
+<div id="status-box" class="state-loading">
+  <div class="status-dot loading" id="status-dot"></div>
+  <div>
+    <div id="status-label">Laddar modell…</div>
+    <div id="status-detail">Hämtar vikter från tfjs_model/</div>
+  </div>
+</div>
+
+<!-- ── Upload / drop area ── -->
+<div id="drop-area">
+  <input type="file" id="file-input" accept="image/*" disabled />
+  <img id="preview-img" alt="Förhandsvisning av uppladdad bild" />
+  <div id="upload-prompt">
+    <div class="upload-icon">🌸</div>
+    <div class="upload-hint">Dra &amp; släpp eller klicka för att välja bild</div>
+    <div class="upload-sub">jpg &nbsp;·&nbsp; png &nbsp;·&nbsp; webp</div>
+  </div>
+</div>
+
+<!-- ── Result card ── -->
+<div id="result-card" role="region" aria-live="polite" aria-label="Klassificeringsresultat">
+  <div class="result-inner" id="result-inner">
+    <div class="result-top-label">Identifierad blomma</div>
+    <div id="flower-name">—</div>
+    <div id="confidence-line">sannolikhet: —</div>
+    <div id="certainty-badge" role="status"></div>
+    <div class="bar-track">
+      <div class="bar-fill" id="main-bar"></div>
+    </div>
+    <!-- "Alla klasser" label only exists here in HTML, JS fills rows below it -->
+    <div id="all-predictions">
+      <div class="pred-section-label">Alla klasser</div>
+      <div id="pred-rows"></div>
+    </div>
+  </div>
+</div>
+
+<footer>Lu.Y Na23C &nbsp;·&nbsp; TensorFlow.js &nbsp;·&nbsp; MobileNetV2</footer>
+
+<script>
+  // ── Configuration ──────────────────────────────────────────
+  const CLASS_NAMES = ['Daisy', 'Dandelion', 'Roses', 'Sunflowers', 'Tulips'];
+  const MODEL_PATH  = 'tfjs_model/model.json';
+  const IMG_SIZE    = 224;
+  const THRESHOLD_SURE      = 0.75;
+  const THRESHOLD_UNCERTAIN = 0.50;
+
+  // ── DOM refs ───────────────────────────────────────────────
+  const statusBox   = document.getElementById('status-box');
+  const dot         = document.getElementById('status-dot');
+  const statusLbl   = document.getElementById('status-label');
+  const statusDtl   = document.getElementById('status-detail');
+  const fileInput   = document.getElementById('file-input');
+  const dropArea    = document.getElementById('drop-area');
+  const previewImg  = document.getElementById('preview-img');
+  const uploadPmt   = document.getElementById('upload-prompt');
+  const resultCard  = document.getElementById('result-card');
+  const resultInner = document.getElementById('result-inner');
+  const flowerName  = document.getElementById('flower-name');
+  const confLine    = document.getElementById('confidence-line');
+  const badge       = document.getElementById('certainty-badge');
+  const mainBar     = document.getElementById('main-bar');
+  const predRows    = document.getElementById('pred-rows'); // only the rows container
+
+  let model = null;
+
+  // ── Status ─────────────────────────────────────────────────
+  function setStatus(state, label, detail) {
+    dot.className         = 'status-dot ' + state;
+    statusBox.className   = 'state-' + state;
+    statusLbl.textContent = label;
+    statusDtl.textContent = detail;
+  }
+
+  // ── Certainty ──────────────────────────────────────────────
+  function getCertaintyClass(score) {
+    if (score >= THRESHOLD_SURE)      return 'cert-sure';
+    if (score >= THRESHOLD_UNCERTAIN) return 'cert-uncertain';
+    return 'cert-very-uncertain';
+  }
+
+  function getCertaintyInfo(cls) {
+    switch (cls) {
+      case 'cert-sure':           return { icon: '✓', text: 'Säkert resultat' };
+      case 'cert-uncertain':      return { icon: '⚠', text: 'Osäkert resultat — låg konfidens' };
+      default:                    return { icon: '✕', text: 'Mycket osäkert — troligen okänd blomma' };
+    }
+  }
+
+  // ── Load model ─────────────────────────────────────────────
+  async function loadModel() {
+    setStatus('loading', 'Laddar modell…', 'Hämtar vikter från tfjs_model/');
+    try {
+      model = await tf.loadLayersModel(MODEL_PATH);
+      const dummy = tf.zeros([1, IMG_SIZE, IMG_SIZE, 3]);
+      model.predict(dummy).dispose();
+      dummy.dispose();
+      setStatus('ready', 'Modell laddad', 'Redo att klassificera — välj en bild nedan');
+      fileInput.disabled = false;
+    } catch (err) {
+      setStatus('error', 'Kunde inte ladda modellen', err.message);
+      console.error(err);
+    }
+  }
+
+  // ── Drag & drop ────────────────────────────────────────────
+  dropArea.addEventListener('dragover',  e => { e.preventDefault(); dropArea.classList.add('dragover'); });
+  dropArea.addEventListener('dragleave', ()  => dropArea.classList.remove('dragover'));
+  dropArea.addEventListener('drop', e => {
+    e.preventDefault();
+    dropArea.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) processFile(file);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) processFile(fileInput.files[0]);
+  });
+
+  // ── Process file ───────────────────────────────────────────
+  function processFile(file) {
+    uploadPmt.style.display  = 'none';
+    previewImg.style.display = 'block';
+    previewImg.onload = null;
+
+    const reader = new FileReader();
+    reader.onload = evt => {
+      previewImg.onload = () => classify(previewImg);
+      previewImg.src = evt.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // ── Classify ───────────────────────────────────────────────
+  async function classify(imgEl) {
+    if (!model) {
+      setStatus('error', 'Modellen saknas', 'Vänta tills modellen har laddats klart');
+      return;
+    }
+
+    setStatus('loading', 'Analyserar bild…', 'Kör inferens — ett ögonblick');
+
+    // Reset result card state before showing new results
+    resultCard.classList.remove('visible');
+    badge.className = '';
+    badge.innerHTML = '';
+    mainBar.style.width = '0%';
+    mainBar.className = 'bar-fill';
+    // Keep result-inner base class, remove any previous cert-* modifier
+    resultInner.className = 'result-inner';
+    // Clear only the prediction rows, not the "Alla klasser" label
+    predRows.innerHTML = '';
+
+    const tensor = tf.tidy(() =>
+      tf.browser.fromPixels(imgEl)
+        .resizeBilinear([IMG_SIZE, IMG_SIZE])
+        .toFloat()
+        .div(255.0)
+        .expandDims(0)
+    );
+
+    let preds;
+    try {
+      preds = await model.predict(tensor).data();
+    } finally {
+      tensor.dispose();
+    }
+
+    const scores   = Array.from(preds);
+    const topIdx   = scores.indexOf(Math.max(...scores));
+    const topScore = scores[topIdx];
+    const topName  = CLASS_NAMES[topIdx] ?? `Klass ${topIdx}`;
+    const certClass = getCertaintyClass(topScore);
+    const certInfo  = getCertaintyInfo(certClass);
+
+    // Update text
+    flowerName.textContent = topName;
+    confLine.textContent   = `sannolikhet: ${(topScore * 100).toFixed(1)} %`;
+
+    // Badge
+    badge.className = `visible ${certClass}`;
+    badge.innerHTML = `<span class="badge-icon">${certInfo.icon}</span>${certInfo.text}`;
+
+    // Card border — add cert-* alongside the permanent result-inner class
+    resultInner.className = `result-inner ${certClass}`;
+
+    // Bar
+    mainBar.className = `bar-fill ${certClass}`;
+    requestAnimationFrame(() => {
+      setTimeout(() => { mainBar.style.width = (topScore * 100).toFixed(1) + '%'; }, 40);
+    });
+
+    // Prediction rows — append only into #pred-rows, label stays untouched
+    const sorted = scores
+      .map((s, i) => ({ name: CLASS_NAMES[i] ?? `Klass ${i}`, score: s }))
+      .sort((a, b) => b.score - a.score);
+
+    sorted.forEach((item, rank) => {
+      const isTop = rank === 0;
+      const row   = document.createElement('div');
+      row.className = 'pred-row';
+      row.innerHTML = `
+        <span class="pred-name${isTop ? ' is-top' : ''}">${item.name}</span>
+        <div class="pred-track">
+          <div class="pred-bar${isTop ? ' is-top' : ''}" style="width:0%"></div>
+        </div>
+        <span class="pred-pct">${(item.score * 100).toFixed(1)} %</span>
+      `;
+      predRows.appendChild(row);
+      setTimeout(() => {
+        row.querySelector('.pred-bar').style.width = (item.score * 100).toFixed(1) + '%';
+      }, 80 + rank * 55);
+    });
+
+    // Show card
+    resultCard.classList.add('visible');
+
+    // Update status
+    const certaintyWord = certClass === 'cert-sure' ? 'Säkert'
+                        : certClass === 'cert-uncertain' ? 'Osäkert'
+                        : 'Mycket osäkert';
+    setStatus('ready',
+      `${topName} — ${(topScore * 100).toFixed(1)} %`,
+      `${certaintyWord} · välj en ny bild för att klassificera igen`
+    );
+  }
+
+  loadModel();
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="sv">
+<head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Blomklassificerare</title>
