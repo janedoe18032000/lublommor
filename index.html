@@ -194,24 +194,24 @@
       pointer-events: none;
     }
 
-    /* ── Result card ── */
+    /* ── Result card ──
+       Hidden by default with display:none so it takes no space at all.
+       JS switches to display:block before adding .visible for the fade-in. */
     #result-card {
+      display: none;
       width: 100%;
       max-width: 560px;
       margin-top: 1.6rem;
       opacity: 0;
       transform: translateY(18px);
       transition: opacity 0.55s ease, transform 0.55s ease;
-      pointer-events: none;
     }
 
     #result-card.visible {
       opacity: 1;
       transform: translateY(0);
-      pointer-events: auto;
     }
 
-    /* result-inner always keeps its base class; cert-* is added alongside */
     .result-inner {
       background: var(--parchment);
       border: 1px solid var(--gold);
@@ -422,7 +422,7 @@
   </div>
 </div>
 
-<!-- ── Result card ── -->
+<!-- ── Result card (hidden until first classification) ── -->
 <div id="result-card" role="region" aria-live="polite" aria-label="Klassificeringsresultat">
   <div class="result-inner" id="result-inner">
     <div class="result-top-label">Identifierad blomma</div>
@@ -432,7 +432,6 @@
     <div class="bar-track">
       <div class="bar-fill" id="main-bar"></div>
     </div>
-    <!-- "Alla klasser" label only exists here in HTML, JS fills rows below it -->
     <div id="all-predictions">
       <div class="pred-section-label">Alla klasser</div>
       <div id="pred-rows"></div>
@@ -444,9 +443,9 @@
 
 <script>
   // ── Configuration ──────────────────────────────────────────
-  const CLASS_NAMES = ['Daisy', 'Dandelion', 'Roses', 'Sunflowers', 'Tulips'];
-  const MODEL_PATH  = 'tfjs_model/model.json';
-  const IMG_SIZE    = 224;
+  const CLASS_NAMES         = ['Daisy', 'Dandelion', 'Roses', 'Sunflowers', 'Tulips'];
+  const MODEL_PATH          = 'tfjs_model/model.json';
+  const IMG_SIZE            = 224;
   const THRESHOLD_SURE      = 0.75;
   const THRESHOLD_UNCERTAIN = 0.50;
 
@@ -465,7 +464,7 @@
   const confLine    = document.getElementById('confidence-line');
   const badge       = document.getElementById('certainty-badge');
   const mainBar     = document.getElementById('main-bar');
-  const predRows    = document.getElementById('pred-rows'); // only the rows container
+  const predRows    = document.getElementById('pred-rows');
 
   let model = null;
 
@@ -486,9 +485,9 @@
 
   function getCertaintyInfo(cls) {
     switch (cls) {
-      case 'cert-sure':           return { icon: '✓', text: 'Säkert resultat' };
-      case 'cert-uncertain':      return { icon: '⚠', text: 'Osäkert resultat — låg konfidens' };
-      default:                    return { icon: '✕', text: 'Mycket osäkert — troligen okänd blomma' };
+      case 'cert-sure':      return { icon: '✓', text: 'Säkert resultat' };
+      case 'cert-uncertain': return { icon: '⚠', text: 'Osäkert resultat — låg konfidens' };
+      default:               return { icon: '✕', text: 'Mycket osäkert — troligen okänd blomma' };
     }
   }
 
@@ -544,16 +543,15 @@
 
     setStatus('loading', 'Analyserar bild…', 'Kör inferens — ett ögonblick');
 
-    // Reset result card state before showing new results
+    // Hide card and reset all state before running new inference
     resultCard.classList.remove('visible');
-    badge.className = '';
-    badge.innerHTML = '';
+    resultCard.style.display = 'none';
+    badge.className  = '';
+    badge.innerHTML  = '';
+    mainBar.className   = 'bar-fill';
     mainBar.style.width = '0%';
-    mainBar.className = 'bar-fill';
-    // Keep result-inner base class, remove any previous cert-* modifier
     resultInner.className = 'result-inner';
-    // Clear only the prediction rows, not the "Alla klasser" label
-    predRows.innerHTML = '';
+    predRows.innerHTML    = '';
 
     const tensor = tf.tidy(() =>
       tf.browser.fromPixels(imgEl)
@@ -570,31 +568,25 @@
       tensor.dispose();
     }
 
-    const scores   = Array.from(preds);
-    const topIdx   = scores.indexOf(Math.max(...scores));
-    const topScore = scores[topIdx];
-    const topName  = CLASS_NAMES[topIdx] ?? `Klass ${topIdx}`;
+    const scores    = Array.from(preds);
+    const topIdx    = scores.indexOf(Math.max(...scores));
+    const topScore  = scores[topIdx];
+    const topName   = CLASS_NAMES[topIdx] ?? `Klass ${topIdx}`;
     const certClass = getCertaintyClass(topScore);
     const certInfo  = getCertaintyInfo(certClass);
 
-    // Update text
+    // Fill in results
     flowerName.textContent = topName;
     confLine.textContent   = `sannolikhet: ${(topScore * 100).toFixed(1)} %`;
 
-    // Badge
     badge.className = `visible ${certClass}`;
     badge.innerHTML = `<span class="badge-icon">${certInfo.icon}</span>${certInfo.text}`;
 
-    // Card border — add cert-* alongside the permanent result-inner class
     resultInner.className = `result-inner ${certClass}`;
 
-    // Bar
     mainBar.className = `bar-fill ${certClass}`;
-    requestAnimationFrame(() => {
-      setTimeout(() => { mainBar.style.width = (topScore * 100).toFixed(1) + '%'; }, 40);
-    });
 
-    // Prediction rows — append only into #pred-rows, label stays untouched
+    // Build prediction rows
     const sorted = scores
       .map((s, i) => ({ name: CLASS_NAMES[i] ?? `Klass ${i}`, score: s }))
       .sort((a, b) => b.score - a.score);
@@ -611,17 +603,23 @@
         <span class="pred-pct">${(item.score * 100).toFixed(1)} %</span>
       `;
       predRows.appendChild(row);
-      setTimeout(() => {
-        row.querySelector('.pred-bar').style.width = (item.score * 100).toFixed(1) + '%';
-      }, 80 + rank * 55);
     });
 
-    // Show card
-    resultCard.classList.add('visible');
+    // Show card, then animate bars on next frame
+    resultCard.style.display = 'block';
+    requestAnimationFrame(() => {
+      resultCard.classList.add('visible');
+      mainBar.style.width = (topScore * 100).toFixed(1) + '%';
+      predRows.querySelectorAll('.pred-bar').forEach((bar, rank) => {
+        setTimeout(() => {
+          bar.style.width = sorted[rank].score * 100 + '%';
+        }, 60 + rank * 55);
+      });
+    });
 
     // Update status
-    const certaintyWord = certClass === 'cert-sure' ? 'Säkert'
-                        : certClass === 'cert-uncertain' ? 'Osäkert'
+    const certaintyWord = certClass === 'cert-sure'      ? 'Säkert'
+                        : certClass === 'cert-uncertain'  ? 'Osäkert'
                         : 'Mycket osäkert';
     setStatus('ready',
       `${topName} — ${(topScore * 100).toFixed(1)} %`,
